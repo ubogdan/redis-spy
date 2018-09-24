@@ -69,6 +69,16 @@ func (r *redisClient) recvWatchResponse() bool {
 	return true
 }
 
+func (r *redisClient) loopRecv() error {
+	for {
+		ret := r.recvWatchResponse()
+		if ret == false {
+			break
+		}
+	}
+	return nil
+}
+
 func init() {
 	flag.Var(&redisAddrParam, "redisAddr", "set redis address")
 	flag.Var(&raftBindAddr, "raftBindAddr", "set raft bind address")
@@ -81,14 +91,18 @@ func main() {
 	//log.Panicf("%s", raftPeers.String())
 	electionInst := election.New(raftBindAddr, raftDataDir, raftPeers)
 	go electionInst.Start()
+	go func() {
+		for {
+			select {
+			case nodeStat := <-electionInst.NodeStatCh:
+				fmt.Println("nodeStat:", nodeStat)
+				//todo
+			}
+		}
+	}()
 	var redisClientInst = redisClient{redisConn: nil}
 	redisClientInst.initConn(redisAddrParam)
 	redisClientInst.sendWatchRequest()
-	for {
-		ret := redisClientInst.recvWatchResponse()
-		if ret == false {
-			break
-		}
-	}
+	redisClientInst.loopRecv()
 	redisClientInst.finConn()
 }

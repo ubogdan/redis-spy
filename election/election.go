@@ -17,11 +17,25 @@ import (
 	"github.com/hashicorp/raft-boltdb"
 )
 
+//NodeState follower, candidate, leader
+type NodeState int
+
+const (
+	//Follower value zero
+	Follower NodeState = iota
+	//Candidate value 1
+	Candidate
+	//Leader value 2
+	Leader
+)
+
 // Election leader election with raft
 type Election struct {
 	raftBindAddr utils.NetAddr
 	raftDataDir  string
 	raftPeers    utils.NetAddrList
+	nodeCurStat  NodeState
+	NodeStatCh   chan NodeState
 }
 
 type Config struct {
@@ -59,7 +73,9 @@ func New(raftBindAddr utils.NetAddr, raftDataDir string, raftPeers utils.NetAddr
 	return &Election{
 		raftBindAddr: raftBindAddr,
 		raftDataDir:  raftDataDir,
-		raftPeers:    raftPeers}
+		raftPeers:    raftPeers,
+		nodeCurStat:  Follower,
+		NodeStatCh:   make(chan NodeState)}
 }
 
 //Start start and maintain leader election and monitor
@@ -131,8 +147,17 @@ func (p *Election) Start() error {
 
 			if err = future.Error(); err != nil {
 				fmt.Println("Node is a follower")
+				if p.nodeCurStat == Leader {
+					p.NodeStatCh <- Follower
+					p.nodeCurStat = Follower
+				}
+
 			} else {
 				fmt.Println("Node is leader")
+				if p.nodeCurStat == Follower {
+					p.NodeStatCh <- Leader
+					p.nodeCurStat = Leader
+				}
 			}
 
 			cfuture := r.GetConfiguration()
