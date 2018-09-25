@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"flag"
@@ -14,6 +15,7 @@ import (
 
 type redisClient struct {
 	redisConn net.Conn
+	reader    *bufio.Reader
 }
 
 var redisAddrParam = *utils.New("127.0.0.1", 6379)
@@ -30,6 +32,7 @@ func (r *redisClient) initConn(redisAddrParam utils.NetAddr) bool {
 		fmt.Println(err)
 		return false
 	}
+	r.reader = bufio.NewReader(r.redisConn)
 	return true
 }
 
@@ -57,15 +60,14 @@ func (r *redisClient) recvWatchResponse() bool {
 	if r.redisConn == nil {
 		return false
 	}
-	buf := make([]byte, 128)
-	c, err := r.redisConn.Read(buf)
+	line, err := r.reader.ReadString('\n')
 	if err != nil {
 		fmt.Println("read error:", err.Error())
 		if err == io.EOF {
 			return false
 		}
 	}
-	fmt.Println(string(buf[0:c]))
+	fmt.Println(line)
 	return true
 }
 
