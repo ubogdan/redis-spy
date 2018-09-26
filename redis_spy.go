@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,9 @@ import (
 type redisClient struct {
 	redisConn net.Conn
 	reader    *bufio.Reader
+	isLeader  bool
+	commandCh chan string
+	errorCh   chan error
 }
 
 var redisAddrParam = *utils.New("127.0.0.1", 6379)
@@ -33,6 +37,9 @@ func (r *redisClient) initConn(redisAddrParam utils.NetAddr) bool {
 		return false
 	}
 	r.reader = bufio.NewReader(r.redisConn)
+	r.isLeader = false
+	r.commandCh = make(chan string)
+	r.errorCh = make(chan error)
 	return true
 }
 
@@ -56,28 +63,51 @@ func (r *redisClient) sendWatchRequest() {
 	buffer.Reset()
 }
 
-func (r *redisClient) recvWatchResponse() bool {
+func (r *redisClient) recvWatchResponse(ch <-chan election.NodeState) bool {
 	if r.redisConn == nil {
+		r.errorCh <- errors.New("redis conn nil")
 		return false
 	}
 	line, err := r.reader.ReadString('\n')
 	if err != nil {
 		fmt.Println("read error:", err.Error())
 		if err == io.EOF {
+			r.errorCh <- errors.New("io.EOF")
 			return false
 		}
 	}
-	fmt.Println(line)
+
+	r.commandCh <- line
 	return true
 }
 
-func (r *redisClient) loopRecv() error {
+func (r *redisClient) loopRecv(ch <-chan election.NodeState) error {
+	go func() {
+		for {
+			ret := r.recvWatchResponse(ch)
+			if ret == false {
+				break
+			}
+		}
+	}()
 	for {
-		ret := r.recvWatchResponse()
-		if ret == false {
-			break
+		select {
+		case nodeStat := <-ch:
+			fmt.Println("nodeStat:", nodeStat)
+			if nodeStat == election.Leader {
+				r.isLeader = true
+			}
+			if nodeStat == election.Follower {
+				r.isLeader = false
+			}
+		case command := <-r.commandCh:
+			fmt.Println("command:", command)
+		case err := <-r.errorCh:
+			fmt.Println(err)
+			goto ForEnd
 		}
 	}
+ForEnd:
 	return nil
 }
 
@@ -93,18 +123,9 @@ func main() {
 	//log.Panicf("%s", raftPeers.String())
 	electionInst := election.New(raftBindAddr, raftDataDir, raftPeers)
 	go electionInst.Start()
-	go func() {
-		for {
-			select {
-			case nodeStat := <-electionInst.NodeStatCh:
-				fmt.Println("nodeStat:", nodeStat)
-				//todo
-			}
-		}
-	}()
 	var redisClientInst = redisClient{redisConn: nil}
 	redisClientInst.initConn(redisAddrParam)
 	redisClientInst.sendWatchRequest()
-	redisClientInst.loopRecv()
+	redisClientInst.loopRecv(electionInst.NodeStatCh)
 	redisClientInst.finConn()
 }

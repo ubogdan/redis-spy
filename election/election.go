@@ -148,6 +148,7 @@ func (p *Election) Start() error {
 			if err = future.Error(); err != nil {
 				fmt.Println("Node is a follower")
 				if p.nodeCurStat == Leader {
+					fmt.Println("Node stat change to:", Follower)
 					p.NodeStatCh <- Follower
 					p.nodeCurStat = Follower
 				}
@@ -155,6 +156,7 @@ func (p *Election) Start() error {
 			} else {
 				fmt.Println("Node is leader")
 				if p.nodeCurStat == Follower {
+					fmt.Println("Node stat change to:", Leader)
 					p.NodeStatCh <- Leader
 					p.nodeCurStat = Leader
 				}
