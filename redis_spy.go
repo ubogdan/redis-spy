@@ -47,6 +47,8 @@ func (r *redisClient) finConn() {
 	if r.redisConn != nil {
 		r.redisConn.Close()
 	}
+	close(r.commandCh)
+	close(r.errorCh)
 }
 
 func (r *redisClient) sendWatchRequest() {
