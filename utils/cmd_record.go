@@ -1,14 +1,17 @@
 package utils
 
-import "fmt"
-
-//CmdRecord interface for meeting command operations monitor
+//CmdRecord a command record unit
+//TimeStamp Unix time
 type CmdRecord struct {
-	RecordType string
+	TimeStamp int64
+	Command   string
 }
 
-//InputCommand process command operation
-func (p *CmdRecord) InputCommand(record string) error {
-	fmt.Println(record)
-	return nil
+//RecordInf interface for meeting command operations monitor
+type RecordInf interface {
+	Init() error
+	InputCommand(record CmdRecord) error
+	SetCache(timout int) error
+	GetCache() (*[]CmdRecord, error)
+	ClearCache() error
 }

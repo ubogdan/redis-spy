@@ -25,6 +25,19 @@ const (
 	Leader
 )
 
+func (e NodeState) String() string {
+	switch e {
+	case Follower:
+		return "Follower"
+	case Candidate:
+		return "Follower"
+	case Leader:
+		return "Leader"
+	default:
+		return fmt.Sprintf("%d", int(e))
+	}
+}
+
 // Election leader election with raft
 type Election struct {
 	raftBindAddr utils.NetAddr
