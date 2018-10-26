@@ -19,7 +19,7 @@ deps:
 	@echo ""
 
 binary:
-	go build ./redis_spy.go
+	go build ./rs-server/redis_spy.go
 
 plugins:
 	go build -buildmode=plugin -o ./plugins/cache.so ./plugins/cache/cache.go
