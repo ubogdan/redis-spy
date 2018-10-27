@@ -73,10 +73,10 @@ func (p *Cache) updateCache() bool {
 	if idx >= len(p.cacheBuffer) {
 		p.cacheBuffer = nil
 	} else {
-		fmt.Println("%v", p.cacheBuffer)
-		fmt.Println("idx:%d, %v", idx, curTimeStamp)
+		fmt.Println("p.cacheBuffer:", p.cacheBuffer)
+		fmt.Println("idx:", idx, "curTimeStamp:", curTimeStamp)
 		p.cacheBuffer = p.cacheBuffer[idx:len(p.cacheBuffer)]
-		fmt.Println("%v", p.cacheBuffer)
+		fmt.Println("p.cacheBuffer:", p.cacheBuffer)
 	}
 	return true
 }

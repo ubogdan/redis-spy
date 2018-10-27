@@ -1,9 +1,9 @@
-.PHONY: all deps binary plugins
+.PHONY: all deps test binary plugins
 
 DEP_VERSION=0.5.0
 OS := $(shell uname | tr '[:upper:]' '[:lower:]')
 
-all: deps binary plugins
+all: deps test binary plugins
 
 prepare:
 	@echo "Installing dep..."
@@ -18,6 +18,9 @@ deps:
 	@dep status
 	@echo ""
 
+test:
+	go test -cover -race ./...
+	
 binary:
 	go build ./rs-server/redis_spy.go
 
