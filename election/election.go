@@ -1,6 +1,7 @@
 package election
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,12 @@ import (
 
 //NodeState follower, candidate, leader
 type NodeState int
+
+var (
+	// ErrNotLeader is returned when a node attempts to execute a leader-only
+	// operation.
+	ErrNotLeader = errors.New("not leader")
+)
 
 const (
 	//Follower value zero
@@ -40,13 +47,17 @@ func (e NodeState) String() string {
 
 // Election leader election with raft
 type Election struct {
+	raft         *raft.Raft
 	raftBindAddr utils.NetAddr
 	raftDataDir  string
 	raftPeers    utils.NetAddrList
 	nodeCurStat  NodeState
 	NodeStatCh   chan NodeState
+	logger       *log.Logger
+	enableSingle bool
 }
 
+// Config ?
 type Config struct {
 	Bind    string `json:"bind"`
 	DataDir string `json:"data_dir"`
@@ -78,13 +89,53 @@ func pathExists(p string) bool {
 }
 
 // New return an Election instance
-func New(raftBindAddr utils.NetAddr, raftDataDir string, raftPeers utils.NetAddrList) *Election {
+func New(raftBindAddr utils.NetAddr, raftDataDir string, raftPeers utils.NetAddrList, enableSingle bool) *Election {
+	logger := log.New(os.Stderr, "[election] ", log.LstdFlags)
 	return &Election{
 		raftBindAddr: raftBindAddr,
 		raftDataDir:  raftDataDir,
 		raftPeers:    raftPeers,
 		nodeCurStat:  Follower,
-		NodeStatCh:   make(chan NodeState)}
+		NodeStatCh:   make(chan NodeState),
+		logger:       logger,
+		enableSingle: enableSingle}
+}
+
+// Join let peers join into cluster
+func (p *Election) Join(id, addr string) error {
+	if p.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+	configFuture := p.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		p.logger.Printf("failed to get raft configuration: %v", err)
+		return err
+	}
+
+	for _, srv := range configFuture.Configuration().Servers {
+		// If a node already exists with either the joining node's ID or address,
+		// that node may need to be removed from the config first.
+		if srv.ID == raft.ServerID(id) || srv.Address == raft.ServerAddress(addr) {
+			// However if *both* the ID and the address are the same, the no
+			// join is actually needed.
+			if srv.Address == raft.ServerAddress(addr) && srv.ID == raft.ServerID(id) {
+				p.logger.Printf("node %s at %s already member of cluster, ignoring join request",
+					id, addr)
+				return nil
+			}
+			// todo: remove id from config
+			p.logger.Printf("todo: remove id from config")
+		}
+	}
+	f := p.raft.AddVoter(raft.ServerID(id), raft.ServerAddress(addr), 0, 0)
+	if e := f.(raft.Future); e.Error() != nil {
+		if e.Error() == raft.ErrNotLeader {
+			return ErrNotLeader
+		}
+		return e.Error()
+	}
+	p.logger.Printf("node at %s joined successfully", addr)
+	return nil
 }
 
 //Start start and maintain leader election and monitor
@@ -115,7 +166,8 @@ func (p *Election) Start() error {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if newNode {
+	p.raft = r
+	if p.enableSingle && newNode {
 		bootstrapConfig := raft.Configuration{
 			Servers: []raft.Server{
 				{
@@ -125,19 +177,21 @@ func (p *Election) Start() error {
 				},
 			},
 		}
-		// Add known peers to bootstrap
-		for _, node := range p.raftPeers.NetAddrs {
+		/*
+			// Add known peers to bootstrap
+			for _, node := range p.raftPeers.NetAddrs {
 
-			if node.String() == p.raftBindAddr.String() {
-				continue
+				if node.String() == p.raftBindAddr.String() {
+					continue
+				}
+
+				bootstrapConfig.Servers = append(bootstrapConfig.Servers, raft.Server{
+					Suffrage: raft.Voter,
+					ID:       raft.ServerID(node.String()),
+					Address:  raft.ServerAddress(node.String()),
+				})
 			}
-
-			bootstrapConfig.Servers = append(bootstrapConfig.Servers, raft.Server{
-				Suffrage: raft.Voter,
-				ID:       raft.ServerID(node.String()),
-				Address:  raft.ServerAddress(node.String()),
-			})
-		}
+		*/
 
 		f := r.BootstrapCluster(bootstrapConfig)
 
@@ -150,13 +204,11 @@ func (p *Election) Start() error {
 		t.Stop()
 		close(p.NodeStatCh)
 	}()
+	joinSucc := false
 	for {
 		select {
 		case <-t.C:
 			future := r.VerifyLeader()
-
-			fmt.Printf("Showing peers known by %s:\n", p.raftBindAddr.String())
-
 			if err = future.Error(); err != nil {
 				fmt.Println("Node is a follower")
 				if p.nodeCurStat == Leader {
@@ -174,17 +226,20 @@ func (p *Election) Start() error {
 				}
 			}
 
-			cfuture := r.GetConfiguration()
-
-			if err = cfuture.Error(); err != nil {
-				log.Fatalf("error getting config: %s", err)
+			if p.nodeCurStat == Leader && joinSucc == false {
+				for _, node := range p.raftPeers.NetAddrs {
+					if node.String() == p.raftBindAddr.String() {
+						continue
+					}
+					joinErr := p.Join(node.String(), node.String())
+					if joinErr != nil {
+						joinSucc = false
+					} else {
+						joinSucc = true
+					}
+				}
 			}
 
-			configuration := cfuture.Configuration()
-
-			for _, server := range configuration.Servers {
-				fmt.Println(server.Address)
-			}
 		}
 	}
 }

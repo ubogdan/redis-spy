@@ -27,6 +27,7 @@ type redisClient struct {
 var redisAddrParam = *utils.New("127.0.0.1", 6379)
 var raftBindAddr = *utils.New("127.0.0.1", 1000)
 var raftDataDir = "/tmp/raft_data"
+var raftEnableSingle = true
 var raftPeers utils.NetAddrList
 var plgConfigList = utils.
 	SpyPluginList{SpyPlugins: []utils.
@@ -161,12 +162,13 @@ func init() {
 	flag.StringVar(&raftDataDir, "raftDataDir", raftDataDir, "set raft data directory")
 	flag.Var(&raftPeers, "raftPeers", "set raft peers, default null")
 	flag.Var(&plgConfigList, "plugins", "plugin settings")
+	flag.BoolVar(&raftEnableSingle, "raftEnableSingle", raftEnableSingle, "enable raft single node")
 }
 
 func main() {
 	flag.Parse()
 	//log.Panicf("%s", raftPeers.String())
-	electionInst := election.New(raftBindAddr, raftDataDir, raftPeers)
+	electionInst := election.New(raftBindAddr, raftDataDir, raftPeers, raftEnableSingle)
 	go electionInst.Start()
 	var redisClientInst = redisClient{redisConn: nil}
 	redisClientInst.initOutPlgs(plgConfigList)
